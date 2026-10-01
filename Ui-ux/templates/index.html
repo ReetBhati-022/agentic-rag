@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block body %}
+<body id="app" class="{{ 'state-workspace' if index_ready else 'state-landing' }}"
+      data-index-ready="{{ 'true' if index_ready else 'false' }}"
+      data-active-pdf="{{ active_pdf_name or '' }}"
+      data-provider="{{ llm_provider }}">
+
+<!-- ===================================================================
+     TOP BAR
+==================================================================== -->
+<header class="topbar">
+
+  <div class="topbar-actions" id="workspace-topbar-actions" hidden>
+    <div class="provider-picker">
+      <button type="button" class="provider-picker-btn" id="providerBtn" aria-haspopup="true" aria-expanded="false">
+        <span id="providerLabel">{{ llm_provider | capitalize }}</span>
+        <svg width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" stroke="currentColor" stroke-width="1.5" fill="none"/></svg>
+      </button>
+      <div class="provider-menu" id="providerMenu" hidden>
+        {% for p in providers %}
+        <button type="button" class="provider-option" data-provider="{{ p }}">{{ p | capitalize }}</button>
+        {% endfor %}
+      </div>
+    </div>
+    <button type="button" class="btn btn-ghost btn-sm" id="addDocBtn">+ Add document</button>
+    <button type="button" class="btn btn-ghost btn-sm btn-danger" id="clearIndexBtn">Clear index</button>
+  </div>
+</header>
+
+<!-- ===================================================================
+     LANDING VIEW
+==================================================================== -->
+<main class="landing" id="landingView">
+  <div class="hero-bg" aria-hidden="true">
+    <span class="blob blob-1"></span>
+    <span class="blob blob-2"></span>
+    <span class="blob blob-3"></span>
+  </div>
+
+  <section class="hero fade-in-up">
+    <p class="eyebrow">AI-Powered Document Intelligence</p>
+    <h1 class="hero-title">Multi-Format RAG Assistant</h1>
+    <p class="hero-subtitle">
+      Upload PDFs, images, and scanned documents. Understand them with OCR, semantic
+      search, hybrid chunking, and grounded, citable answers.
+    </p>
+
+    <div class="pill-row">
+      <span class="pill">PDF</span>
+      <span class="pill">OCR</span>
+      <span class="pill">Images</span>
+      <span class="pill">Multi-Format</span>
+      <span class="pill">Semantic Search</span>
+      <span class="pill">Citations</span>
+    </div>
+  </section>
+
+  <section class="upload-section fade-in-up delay-1">
+    <form id="uploadForm">
+      <label class="dropzone" id="dropzone" for="fileInput">
+        <input type="file" id="fileInput" name="files" multiple
+               accept=".pdf,.png,.jpg,.jpeg" hidden>
+        <div class="dropzone-icon">
+          <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
+            <path d="M20 26V10M20 10l-6 6M20 10l6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M8 28v3a3 3 0 0 0 3 3h18a3 3 0 0 0 3-3v-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <p class="dropzone-title">Drop your document here</p>
+        <p class="dropzone-or">or</p>
+        <span class="btn btn-primary" id="browseBtn">Upload Document</span>
+        <p class="dropzone-supported">Supports&nbsp; PDF &middot; PNG &middot; JPG</p>
+      </label>
+    </form>
+
+    <div class="file-stage" id="fileStage" hidden>
+      <div class="file-stage-list" id="fileStageList"></div>
+      <button type="button" class="btn btn-primary btn-block" id="processBtn">Process &amp; Index</button>
+    </div>
+
+    <!-- Inline indexing progress (replaces the upload card while processing) -->
+    <div class="progress-inline" id="progressOverlay" hidden>
+      <p class="progress-heading">Indexing your document</p>
+      <ul class="progress-stages" id="progressStages">
+        <li data-stage="upload"><span class="stage-dot"></span><span class="stage-label">Uploading</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="extract"><span class="stage-dot"></span><span class="stage-label">Extracting Text</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="ocr"><span class="stage-dot"></span><span class="stage-label">OCR</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="chunk"><span class="stage-dot"></span><span class="stage-label">Chunking</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="embed"><span class="stage-dot"></span><span class="stage-label">Embeddings</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="faiss"><span class="stage-dot"></span><span class="stage-label">Building FAISS</span><span class="stage-bar"><i></i></span></li>
+        <li data-stage="ready"><span class="stage-dot"></span><span class="stage-label">Ready</span><span class="stage-bar"><i></i></span></li>
+      </ul>
+      <p class="progress-error" id="progressError" hidden></p>
+    </div>
+  </section>
+</main>
+
+<!-- ===================================================================
+     WORKSPACE VIEW
+==================================================================== -->
+<main class="workspace" id="workspaceView">
+
+  <!-- LEFT — PDF VIEWER -->
+  <section class="pdf-panel">
+    <div class="pdf-toolbar">
+      <div class="pdf-toolbar-group pdf-doc-picker" id="pdfDocPicker" hidden>
+        <label class="pdf-doc-picker-label" for="pdfDocSelect">Document</label>
+        <select id="pdfDocSelect" title="Select document to preview"></select>
+      </div>
+      <div class="pdf-toolbar-group">
+        <button class="icon-btn" id="pdfPrev" title="Previous page">&#8249;</button>
+        <span class="pdf-page-indicator"><input type="number" id="pdfPageInput" min="1" value="1">&nbsp;/ <span id="pdfPageCount">1</span></span>
+        <button class="icon-btn" id="pdfNext" title="Next page">&#8250;</button>
+      </div>
+      <div class="pdf-toolbar-group">
+        <button class="icon-btn" id="pdfZoomOut" title="Zoom out">&minus;</button>
+        <span class="pdf-zoom-indicator" id="pdfZoomLabel">100%</span>
+        <button class="icon-btn" id="pdfZoomIn" title="Zoom in">+</button>
+        <button class="icon-btn" id="pdfRotate" title="Rotate">&#8635;</button>
+      </div>
+      <div class="pdf-toolbar-group">
+        <a class="icon-btn" id="pdfDownload" href="/pdf/current" download title="Download">&#8595;</a>
+      </div>
+    </div>
+
+    <div class="pdf-body">
+      <aside class="pdf-thumbnails" id="pdfThumbnails"></aside>
+      <div class="pdf-canvas-wrap" id="pdfCanvasWrap">
+        <div class="pdf-empty" id="pdfEmpty">
+          <p>No document loaded</p>
+        </div>
+        <canvas id="pdfCanvas" hidden></canvas>
+      </div>
+    </div>
+  </section>
+
+  <!-- RIGHT — CHAT -->
+  <section class="chat-panel">
+    <div class="chat-header">
+      <div>
+        <p class="chat-title">AI Chat</p>
+        <p class="chat-subtitle" id="chatSubtitle">Ask questions and get grounded, cited answers.</p>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm" id="clearChatBtn">Clear chat</button>
+    </div>
+
+    <div class="chat-messages" id="chatMessages">
+      {% if not chat_history %}
+      <div class="chat-welcome" id="chatWelcome">
+        <div class="pipeline-summary" id="pipelineSummary" hidden>
+          <p class="pipeline-summary-title">
+            <span class="pipeline-check">&#10003;</span> Document uploaded and indexed successfully
+          </p>
+          <div class="pipeline-steps" id="pipelineSteps"></div>
+        </div>
+        <p class="chat-welcome-hi">Hello 👋</p>
+        <p class="chat-welcome-text">I've successfully analyzed your document. Ask me anything, or try one of these:</p>
+        <div class="doc-stats" id="docStats"></div>
+        <div class="suggested-questions" id="suggestedQuestions">
+          <button type="button" class="chip" data-q="Summarize this document.">Summarize</button>
+          <button type="button" class="chip" data-q="What are the most important insights?">Important Insights</button>
+          <button type="button" class="chip" data-q="What type of document is this?">Document Type</button>
+          <button type="button" class="chip" data-q="List the key points.">Key Points</button>
+        </div>
+      </div>
+      {% endif %}
+
+      {% for msg in chat_history %}
+        <div class="msg msg-{{ msg.role }}">
+          <div class="msg-bubble">{{ msg.content }}</div>
+          {% if msg.citations %}
+          <div class="citations">
+            {% for c in msg.citations %}
+            <button type="button" class="citation-card" data-page="{{ c.page }}" data-source="{{ c.source }}">
+              <div class="citation-head">
+                <span class="citation-source">{{ c.source }}</span>
+                <span class="citation-badge">Page {{ c.page }}</span>
+              </div>
+              <p class="citation-snippet">{{ c.snippet }}</p>
+              <span class="citation-link">View in PDF &rarr;</span>
+            </button>
+            {% endfor %}
+          </div>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+
+    <form class="chat-input-bar" id="chatForm">
+      <button type="button" class="icon-btn" id="chatAttachBtn" title="Upload another document">&#128206;</button>
+      <input type="file" id="chatAttachInput" hidden accept=".pdf,.png,.jpg,.jpeg" multiple>
+      <textarea id="chatInput" rows="1" placeholder="Ask anything about your document..."></textarea>
+      <button type="submit" class="send-btn" id="chatSendBtn" title="Send">
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none"><path d="M2 16L16 9L2 2L2 7.5L11 9L2 10.5L2 16Z" fill="currentColor"/></svg>
+      </button>
+    </form>
+  </section>
+</main>
+
+<script id="chatHistoryData" type="application/json">{{ chat_history | tojson }}</script>
+<!-- Names of every currently-indexed PDF (safe filenames, matching
+     STATE["indexed_files"] on the backend), used to populate the PDF
+     preview document selector on load. This is a VIEW-only list -- it
+     drives which document the PDF.js viewer shows, and has no bearing
+     on which documents are used for retrieval. -->
+<script id="pdfDocumentsData" type="application/json">{{ pdf_documents | tojson }}</script>
+</body>
+{% endblock %}

@@ -1,0 +1,131 @@
+# ===========================================================================
+# Multi-Format RAG Application — Central Configuration
+# ===========================================================================
+
+app:
+  name: "Multi-Format RAG Assistant"
+  version: "1.0.0"
+  upload_dir: "data/uploads"
+  vectorstore_dir: "data/vectorstore"
+  chunks_dir: "data/chunks"
+  log_dir: "logs"
+  log_level: "INFO"
+  max_upload_size_mb: 200
+  allowed_extensions: [".pdf", ".png", ".jpg", ".jpeg"]
+
+# ---------------------------------------------------------------------------
+# Document ingestion
+# ---------------------------------------------------------------------------
+ingestion:
+  llmwhisperer:
+    mode: "form"                    # form | native_text | high_quality
+    output_mode: "layout_preserving"
+    wait_timeout: 300
+
+# ---------------------------------------------------------------------------
+# Hybrid chunking strategy
+# ---------------------------------------------------------------------------
+chunking:
+  chunk_size: 350
+  chunk_overlap: 60
+  separators: ["\n\n", "\n", ". ", " ", ""]
+
+# ---------------------------------------------------------------------------
+# Embeddings
+# ---------------------------------------------------------------------------
+embeddings:
+  provider: "huggingface"
+  model_name: "BAAI/bge-small-en-v1.5"
+  device: "cpu"
+  normalize_embeddings: true
+  encode_kwargs:
+    batch_size: 32
+
+# ---------------------------------------------------------------------------
+# Vector store (FAISS)
+# ---------------------------------------------------------------------------
+vectorstore:
+  provider: "faiss"
+  index_name: "faiss_index"
+  distance_strategy: "COSINE"
+  save_local: true
+
+# ---------------------------------------------------------------------------
+# Retrieval (MMR = Maximal Marginal Relevance)
+# ---------------------------------------------------------------------------
+retrieval:
+  top_k: 5
+  fetch_k: 20
+  lambda_mult: 0.5
+  score_threshold: null
+  hybrid:
+    enabled: true
+    bm25_k: 20          # candidates pulled from the BM25 side
+    rrf_k: 60           
+  reranker:
+    enabled: true
+    model_name: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    candidate_k: 20
+
+# ---------------------------------------------------------------------------
+# LLM configuration
+# ---------------------------------------------------------------------------
+llm:
+  default_provider: "ollama"
+  temperature: 0.2
+  max_tokens: 2048
+
+  providers:
+    ollama:
+      model_name: "gpt-oss:120b-cloud"
+      api_key_env: "OLLAMA_API_KEY"
+      host_env: "OLLAMA_HOST"
+
+    groq:
+      model_name: "qwen/qwen3.6-27b"
+      api_key_env: "GROQ_API_KEY"
+
+    huggingface:
+      model_name: "mistralai/Mistral-7B-Instruct-v0.3"
+      api_key_env: "HUGGINGFACEHUB_API_TOKEN"
+
+# ---------------------------------------------------------------------------
+# Agentic orchestration (LangGraph: PDF / Web / Math)
+# ---------------------------------------------------------------------------
+agent:
+  max_iterations: 2
+  web_search:
+    num_results: 5
+  checkpoint:
+    enabled: true
+    conn_string_env: "POSTGRES_URI"  # name of the .env var holding the DSN
+    max_pool_size: 10
+  memory:
+    enabled: true
+    conn_string_env: "POSTGRES_URI"
+    max_pool_size: 5
+    # Max memories folded into a single turn's question.
+    max_recall: 5
+    # Minimum cosine similarity (embedding space) for a stored memory to
+    # be recalled as relevant to the current question.
+    recall_threshold: 0.30
+    # Minimum cosine similarity for a newly-extracted fact to be treated
+    # as a duplicate of one already stored (and therefore skipped).
+    dedup_threshold: 0.92
+
+# ---------------------------------------------------------------------------
+# RAG prompt configuration
+# ---------------------------------------------------------------------------
+rag:
+  system_prompt: >
+    You are a helpful, knowledgeable assistant who answers questions about
+    the user's uploaded documents the way a well-prepared colleague would --
+    naturally and conversationally, not like a search engine reciting
+    excerpts. Answer using ONLY the information present in the provided
+    context, and never guess or use outside knowledge. Every factual claim
+    must be traceable to the context, with numbers, dates, and names stated
+    exactly as they appear. If the answer cannot be found in the context,
+    say so clearly and briefly instead of guessing. The application already
+    shows the user which document and page each answer came from, so do not
+    add inline citation markers such as [Source: <filename>, Page <n>] --
+    just answer directly.
